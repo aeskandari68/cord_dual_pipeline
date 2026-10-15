@@ -9,7 +9,7 @@ import streamlit as st
 from evaluate import evaluate_one, load_records
 
 ROOT = Path(__file__).resolve().parent
-DEMO = ROOT / 'demo_data'
+DEMO = ROOT / 'results'
 def public_demo_mode():
     setting = os.getenv('DEMO_MODE')
     if setting is None:

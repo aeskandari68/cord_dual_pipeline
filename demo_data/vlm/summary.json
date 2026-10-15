@@ -1,0 +1,16 @@
+{
+  "model": "qwen2.5vl:7b",
+  "pipeline": "vlm",
+  "attempted": 50,
+  "succeeded": 50,
+  "failed": 0,
+  "item_micro_precision": 0.7823,
+  "item_micro_recall": 0.8151,
+  "item_micro_f1": 0.7984,
+  "true_positives": 97,
+  "false_positives": 27,
+  "false_negatives": 22,
+  "total_accuracy": 1.0,
+  "total_evaluated": 47,
+  "mean_seconds_per_success": 5.95
+}

@@ -1,0 +1,16 @@
+{
+  "model": "qwen2.5:7b",
+  "pipeline": "ocr_llm",
+  "attempted": 50,
+  "succeeded": 39,
+  "failed": 11,
+  "item_micro_precision": 0.1558,
+  "item_micro_recall": 0.1304,
+  "item_micro_f1": 0.142,
+  "true_positives": 12,
+  "false_positives": 65,
+  "false_negatives": 80,
+  "total_accuracy": 0.2162,
+  "total_evaluated": 37,
+  "mean_seconds_per_success": 3.97
+}
