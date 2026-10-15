@@ -1,0 +1,4 @@
+-r requirements.txt
+datasets>=2.18
+ollama>=0.4
+pytesseract>=0.3.10

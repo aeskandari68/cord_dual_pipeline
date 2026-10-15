@@ -1,0 +1,15 @@
+{
+  "model": "qwen2.5vl:7b",
+  "attempted": 10,
+  "succeeded": 10,
+  "failed": 0,
+  "item_micro_precision": 0.75,
+  "item_micro_recall": 0.8,
+  "item_micro_f1": 0.7742,
+  "true_positives": 12,
+  "false_positives": 4,
+  "false_negatives": 3,
+  "mean_seconds_per_success": 5.02,
+  "total_accuracy": 0.9,
+  "total_evaluated": 10
+}
