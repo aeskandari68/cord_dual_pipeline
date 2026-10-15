@@ -42,6 +42,40 @@ def metrics_for(directory: str):
     return json.loads(summary.read_text(encoding='utf8')) if summary.exists() else None
 
 
+@st.cache_data(show_spinner=False)
+def evaluated_rows_for(path: str):
+    """Load row-level evaluation data; errors are kept for completion reporting."""
+    file = Path(path)
+    if not file.exists():
+        return None
+    return pd.read_csv(file)
+
+
+def successful_rows(df):
+    required = {'receipt_id', 'tp', 'fp', 'fn', 'total_correct'}
+    if df is None or not required.issubset(df.columns):
+        return pd.DataFrame()
+    okay = df.dropna(subset=['receipt_id', 'tp', 'fp', 'fn']).copy()
+    if 'status' in okay.columns:
+        okay = okay[okay['status'].astype(str).str.lower().isin({'ok', 'success'})]
+    okay['receipt_id'] = okay['receipt_id'].astype(int)
+    return okay.drop_duplicates(subset=['receipt_id'], keep='last')
+
+
+def paired_metrics(rows):
+    tp, fp, fn = [int(rows[c].sum()) for c in ('tp', 'fp', 'fn')]
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    values = rows['total_correct'].dropna().astype(str).str.strip().str.lower()
+    valid = values[values.isin({'true', 'false', '1', '0'})]
+    total_accuracy = valid.isin({'true', '1'}).mean() if len(valid) else float('nan')
+    time_mean = pd.to_numeric(rows['time_seconds'], errors='coerce').mean() if 'time_seconds' in rows else float('nan')
+    return {'Receipts': len(rows), 'TP': tp, 'FP': fp, 'FN': fn,
+            'Item precision': precision, 'Item recall': recall, 'Item F1': f1,
+            'Total accuracy': total_accuracy, 'Mean seconds': time_mean}
+
+
 @st.cache_resource(show_spinner=False)
 def get_dataset():
     from datasets import load_dataset
@@ -171,6 +205,7 @@ with explore:
                     st.code(selected['ocr_text'], language='text')
 
 with compare:
+    st.subheader('Overall saved-run results')
     snapshots = []
     for key, label in PIPELINES.items():
         directory = folders(key)
@@ -178,7 +213,9 @@ with compare:
         if summary:
             snapshots.append({
                 'Approach': label, 'Model': summary.get('model'),
-                'Receipts': summary.get('succeeded'),
+                'Attempted': summary.get('attempted'),
+                'Succeeded': summary.get('succeeded'),
+                'Failed': summary.get('failed'),
                 'Item precision': summary.get('item_micro_precision'),
                 'Item recall': summary.get('item_micro_recall'),
                 'Item F1': summary.get('item_micro_f1'),
@@ -190,11 +227,45 @@ with compare:
     else:
         df = pd.DataFrame(snapshots)
         st.dataframe(df, hide_index=True, use_container_width=True)
-        st.bar_chart(df.set_index('Approach')[['Item precision', 'Item recall', 'Item F1']])
-        st.download_button('Download comparison CSV', df.to_csv(index=False), 'comparison.csv', 'text/csv')
-        if len(snapshots) < 2:
-            st.info('Only the VLM baseline is available. Run OCR + LLM locally to enable a real two-pipeline comparison.')
+        st.bar_chart(df.set_index('Approach')[['Item precision', 'Item recall', 'Item F1']], stack=False)
+        st.download_button('Download overall comparison CSV', df.to_csv(index=False),
+                           'overall_comparison.csv', 'text/csv')
+        st.caption('Overall metrics are calculated over each pipeline’s successful runs. '
+                   'These sample sizes may differ and are not necessarily a paired comparison.')
+
+    st.divider()
+    st.subheader('Fair paired comparison — shared successful receipt IDs')
+    sources = {key: evaluated_rows_for(str(folders(key) / 'results.csv'))
+               for key in PIPELINES}
+    valid = {key: successful_rows(rows) for key, rows in sources.items()}
+    if any(frame.empty for frame in valid.values()):
+        st.info('Both pipelines need results.csv with receipt_id, tp, fp, fn, '
+                'total_correct and status to show the paired benchmark.')
+    else:
+        shared = sorted(set(valid['vlm']['receipt_id']) & set(valid['ocr_llm']['receipt_id']))
+        if not shared:
+            st.warning('No shared successful receipt IDs were found.')
         else:
-            st.caption('Compare on identical validation receipt IDs for fairness. Performance timings depend on hardware and runtime settings.')
-    st.markdown('**Experiment design:** identical receipt images, shared JSON schema and matching metrics. '
-                'The OCR pipeline has a distinct recognition stage whose mistakes propagate to the text-only LLM.')
+            comparison = []
+            for key, label in PIPELINES.items():
+                paired = valid[key][valid[key]['receipt_id'].isin(shared)]
+                comparison.append({'Approach': label, **paired_metrics(paired)})
+            paired_df = pd.DataFrame(comparison)
+            st.caption(f'{len(shared)} matched receipts. Both pipelines evaluated on exactly the same IDs; '
+                       'counts are micro-aggregated, not averages of per-receipt F1.')
+            st.dataframe(paired_df, hide_index=True, use_container_width=True)
+            st.bar_chart(paired_df.set_index('Approach')[['Item precision', 'Item recall', 'Item F1']], stack=False)
+            st.download_button('Download paired comparison CSV', paired_df.to_csv(index=False),
+                               'paired_comparison.csv', 'text/csv')
+            with st.expander('Shared IDs and failure accounting'):
+                st.write('Shared receipt IDs:', shared)
+                for key, label in PIPELINES.items():
+                    source = sources[key]
+                    n_attempted = source['receipt_id'].nunique() if source is not None else 0
+                    n_success = len(valid[key])
+                    st.write(f'{label}: {n_success}/{n_attempted} successful unique IDs; '
+                             f'{n_attempted - n_success} without successful evaluation.')
+    st.markdown('**Methodology:** same CORD-v2 validation receipt images and Pydantic schema. '
+                'Items are matched using normalised names and prices; total accuracy checks '
+                'the annotated transaction total. This is a custom evaluation, not the official CORD metric. '
+                'The public app replays saved predictions and does not run inference.')
